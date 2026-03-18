@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raw Data Cleaner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+</head>
+<body class="bg-gray-50 min-h-screen font-sans text-gray-800">
+
+    <div class="max-w-3xl mx-auto pt-16 px-4">
+        <div class="bg-white p-8 rounded-xl shadow-lg border border-gray-100">
+            <h1 class="text-3xl font-bold text-gray-900 mb-2">Raw Data Cleaner</h1>
+            <p class="text-gray-500 mb-8">Process raw transport excel files securely in your browser. No data is uploaded to any server.</p>
+
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Upload Raw Excel Files</label>
+                <div class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md hover:border-blue-500 transition-colors bg-gray-50">
+                    <div class="space-y-1 text-center">
+                        <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+                            <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                        <div class="flex text-sm text-gray-600 justify-center">
+                            <label for="file-upload" class="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none">
+                                <span>Upload files</span>
+                                <input id="file-upload" name="file-upload" type="file" class="sr-only" multiple accept=".xlsx, .xls">
+                            </label>
+                        </div>
+                        <p class="text-xs text-gray-500" id="file-count">No files selected</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mb-8">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Select Output Format</label>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    
+                    <label class="relative flex cursor-pointer rounded-lg border bg-white p-4 shadow-sm focus:outline-none">
+                        <input type="radio" name="exportType" value="billing" class="sr-only" checked>
+                        <div class="flex flex-1 justify-center items-center text-center">
+                            <span class="font-medium text-gray-900 border-b-2 border-transparent transition-all peer-checked:border-blue-600">Billing Format</span>
+                        </div>
+                        <div class="pointer-events-none absolute -inset-px rounded-lg border-2 border-transparent peer-checked:border-blue-500" aria-hidden="true"></div>
+                    </label>
+
+                    <label class="relative flex cursor-pointer rounded-lg border bg-white p-4 shadow-sm focus:outline-none">
+                        <input type="radio" name="exportType" value="operation" class="sr-only">
+                        <div class="flex flex-1 justify-center items-center text-center">
+                            <span class="font-medium text-gray-900 border-b-2 border-transparent transition-all peer-checked:border-blue-600">Operations Format</span>
+                        </div>
+                        <div class="pointer-events-none absolute -inset-px rounded-lg border-2 border-transparent peer-checked:border-blue-500" aria-hidden="true"></div>
+                    </label>
+
+                    <label class="relative flex cursor-pointer rounded-lg border bg-white p-4 shadow-sm focus:outline-none">
+                        <input type="radio" name="exportType" value="roster" class="sr-only">
+                        <div class="flex flex-1 justify-center items-center text-center">
+                            <span class="font-medium text-gray-900 border-b-2 border-transparent transition-all peer-checked:border-blue-600">Roster Format</span>
+                        </div>
+                        <div class="pointer-events-none absolute -inset-px rounded-lg border-2 border-transparent peer-checked:border-blue-500" aria-hidden="true"></div>
+                    </label>
+
+                </div>
+            </div>
+
+            <button id="processBtn" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-md hover:bg-blue-700 transition-colors shadow-sm">
+                Process & Download Data
+            </button>
+            
+            <div id="log" class="mt-4 text-sm text-gray-600 font-mono hidden bg-gray-100 p-4 rounded-md h-32 overflow-y-auto"></div>
+        </div>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('file-upload');
+        const fileCountDisplay = document.getElementById('file-count');
+        const processBtn = document.getElementById('processBtn');
+        const logDiv = document.getElementById('log');
+
+        // Style the selected radio buttons
+        const radios = document.querySelectorAll('input[name="exportType"]');
+        radios.forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                document.querySelectorAll('.border-blue-500').forEach(el => el.classList.replace('border-blue-500', 'border-transparent'));
+                if(e.target.checked) {
+                    e.target.nextElementSibling.nextElementSibling.classList.replace('border-transparent', 'border-blue-500');
+                }
+            });
+        });
+        // Initial setup for default checked
+        document.querySelector('input[name="exportType"]:checked').nextElementSibling.nextElementSibling.classList.replace('border-transparent', 'border-blue-500');
+
+        fileInput.addEventListener('change', () => {
+            const count = fileInput.files.length;
+            fileCountDisplay.textContent = count > 0 ? `${count} file(s) selected` : "No files selected";
+        });
+
+        function log(msg) {
+            logDiv.classList.remove('hidden');
+            logDiv.innerHTML += `<div>> ${msg}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        async function processFiles() {
+            if (fileInput.files.length === 0) {
+                alert("Please upload at least one Excel file.");
+                return;
+            }
+
+            logDiv.innerHTML = '';
+            processBtn.disabled = true;
+            processBtn.textContent = "Processing...";
+
+            try {
+                let allProcessedRows = [];
+
+                for (let file of fileInput.files) {
+                    log(`Reading ${file.name}...`);
+                    const data = await file.arrayBuffer();
+                    const workbook = XLSX.read(data, { type: 'array', cellText:false, cellDates:true });
+                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                    // Read raw 2D array to emulate Python's row-by-row iteration
+                    const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+
+                    let currentTripId = "";
+                    let currentHeader = {};
+
+                    rawRows.forEach((row, index) => {
+                        const col0 = String(row[0] || "").trim();
+                        const col1 = String(row[1] || "").trim();
+                        const col10 = String(row[10] || "").trim();
+
+                        // Update current Trip ID (Forward fill logic)
+                        if (col10.startsWith('T')) {
+                            currentTripId = col10.replace('T', '');
+                        }
+
+                        // Identify Header Row
+                        if (col1.toUpperCase().includes("UNITED FACILITIES")) {
+                            currentHeader = {
+                                TRIP_DATE: row[0],
+                                AGENCY_NAME: "UNITED FACILITIES",
+                                D_LOGIN: String(row[2] || ""),
+                                VEHICLE_NO: String(row[3] || "").replace(/-/g, '').replace(/ /g, '').toUpperCase(),
+                                DRIVER_NAME: String(row[4] || ""),
+                                DRIVER_MOBILE: String(row[6] || ""),
+                                TRIP_ID: currentTripId
+                            };
+
+                            // Parse Direction and Shift Time from D_LOGIN
+                            const loginParts = currentHeader.D_LOGIN.trim().split(' ');
+                            currentHeader.DIRECTION = loginParts[0] ? loginParts[0].toUpperCase().replace('LOGIN', 'PICKUP').replace('LOGOUT', 'DROP') : "";
+                            currentHeader.SHIFT_TIME = loginParts.length > 1 ? loginParts[1] : "";
+                        }
+
+                        // Identify Passenger Row
+                        if (/^[0-9]+$/.test(col0)) {
+                            let passengerRow = {
+                                PAX_NO: row[0],
+                                REPORTING_TIME: row[1],
+                                EMPLOYEE_ID: row[2],
+                                EMPLOYEE_NAME: row[3],
+                                GENDER: row[4],
+                                EMP_CATEGORY: row[5],
+                                FLIGHT_NO: row[6],
+                                ADDRESS: row[7],
+                                REPORTING_LOCATION: row[8],
+                                LANDMARK: row[9],
+                                PASSENGER_MOBILE: row[10],
+                            };
+
+                            // Office Standardization
+                            let office = String(passengerRow.REPORTING_LOCATION).toUpperCase();
+                            if (office === "DELHI IGI T3" || office === "DELHI AIRPORT") office = "Terminal-3";
+                            if (office === "DELHI IGI T2") office = "Terminal-2";
+                            passengerRow.REPORTING_LOCATION = office;
+
+                            allProcessedRows.push({ ...passengerRow, ...currentHeader });
+                        }
+                    });
+                }
+
+                log(`Successfully merged ${allProcessedRows.length} passenger rows.`);
+                
+                const exportType = document.querySelector('input[name="exportType"]:checked').value;
+                exportData(allProcessedRows, exportType);
+
+            } catch (err) {
+                log(`<span class="text-red-500">Error: ${err.message}</span>`);
+                console.error(err);
+            } finally {
+                processBtn.disabled = false;
+                processBtn.textContent = "Process & Download Data";
+            }
+        }
+
+        function exportData(data, type) {
+            let finalWorkbook = XLSX.utils.book_new();
+            let finalSheet;
+
+            // Date Formatting Helper
+            const formatDate = (dateVal) => {
+                if (!dateVal) return "";
+                if (dateVal instanceof Date) {
+                    const d = String(dateVal.getDate()).padStart(2, '0');
+                    const m = String(dateVal.getMonth() + 1).padStart(2, '0');
+                    const y = dateVal.getFullYear();
+                    return `${d}-${m}-${y}`;
+                }
+                return String(dateVal);
+            };
+
+            if (type === 'billing') {
+                log("Formatting for Billing Database...");
+                // Map to Python output style
+                const billingData = data.map(row => {
+                    const trip_id = String(row.TRIP_ID || "");
+                    const emp_id = String(row.EMPLOYEE_ID || "");
+                    return {
+                        trip_id: trip_id,
+                        shift_date: formatDate(row.TRIP_DATE),
+                        employee_id: emp_id,
+                        employee_name: row.EMPLOYEE_NAME,
+                        gender: row.GENDER,
+                        shift_time: row.SHIFT_TIME,
+                        pickup_time: row.REPORTING_TIME,
+                        trip_direction: row.DIRECTION,
+                        cab_reg_no: row.VEHICLE_NO,
+                        vendor: row.AGENCY_NAME,
+                        office: row.REPORTING_LOCATION,
+                        landmark: row.LANDMARK,
+                        address: row.ADDRESS,
+                        flight_number: row.FLIGHT_NO,
+                        emp_category: row.EMP_CATEGORY,
+                        driver_name: row.DRIVER_NAME,
+                        driver_mobile: row.DRIVER_MOBILE,
+                        passenger_mobile: row.PASSENGER_MOBILE,
+                        unique_id: `${trip_id}${emp_id}`,
+                        data_source: "RAW_DATA"
+                    };
+                });
+                finalSheet = XLSX.utils.json_to_sheet(billingData);
+
+            } else if (type === 'operation') {
+                log("Formatting for Operations (Clean Table)...");
+                // Simple flat table with everything
+                finalSheet = XLSX.utils.json_to_sheet(data);
+
+            } else if (type === 'roster') {
+                log("Formatting for Roster (Sorted by Shift Time & Grouped by Trip)...");
+                
+                // Sort by Shift Time
+                data.sort((a, b) => String(a.SHIFT_TIME || "").localeCompare(String(b.SHIFT_TIME || "")));
+
+                // Group by Trip ID
+                const groupedByTrip = {};
+                data.forEach(row => {
+                    if (!groupedByTrip[row.TRIP_ID]) groupedByTrip[row.TRIP_ID] = [];
+                    groupedByTrip[row.TRIP_ID].push(row);
+                });
+
+                let aoaData = []; // Array of Arrays for custom layout
+
+                // Build layout: Header Row -> Passenger Rows
+                for (const trip in groupedByTrip) {
+                    const tripRows = groupedByTrip[trip];
+                    const h = tripRows[0]; // Header info
+
+                    // Insert custom header block for the trip
+                    aoaData.push([]); // Spacer
+                    aoaData.push(["TRIP DATE", "AGENCY NAME", "LOGIN/SHIFT", "VEHICLE NO", "DRIVER NAME", "DRIVER MOBILE", "TRIP ID"]);
+                    aoaData.push([formatDate(h.TRIP_DATE), h.AGENCY_NAME, `${h.DIRECTION} ${h.SHIFT_TIME}`, h.VEHICLE_NO, h.DRIVER_NAME, h.DRIVER_MOBILE, h.TRIP_ID]);
+                    
+                    // Passenger Column Headers
+                    aoaData.push(["PAX NO", "REPORTING TIME", "EMP ID", "NAME", "GENDER", "CATEGORY", "FLIGHT", "ADDRESS", "LOCATION", "LANDMARK", "MOBILE"]);
+                    
+                    // Passenger Data
+                    tripRows.forEach(pax => {
+                        aoaData.push([
+                            pax.PAX_NO, pax.REPORTING_TIME, pax.EMPLOYEE_ID, pax.EMPLOYEE_NAME, pax.GENDER, 
+                            pax.EMP_CATEGORY, pax.FLIGHT_NO, pax.ADDRESS, pax.REPORTING_LOCATION, pax.LANDMARK, pax.PASSENGER_MOBILE
+                        ]);
+                    });
+                }
+                finalSheet = XLSX.utils.aoa_to_sheet(aoaData);
+            }
+
+            XLSX.utils.book_append_sheet(finalWorkbook, finalSheet, "Cleaned Data");
+            log("Downloading Excel file...");
+            XLSX.writeFile(finalWorkbook, `Cleaned_${type.toUpperCase()}_Data.xlsx`);
+            log("Process Complete! ✅");
+        }
+
+        processBtn.addEventListener('click', processFiles);
+    </script>
+</body>
+</html>
