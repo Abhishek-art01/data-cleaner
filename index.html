@@ -473,19 +473,18 @@
         return String(v);
     }
 
-    // Format: "26 Jan 26"
+    // Format: "26-01-2026"
     function formatShiftDate(v) {
         if (!v) return "";
         let dt = v instanceof Date ? v : new Date(v);
         if (isNaN(dt.getTime())) return String(v);
-        const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
         const dd = String(dt.getDate()).padStart(2, "0");
-        const mon = months[dt.getMonth()];
-        const yy = String(dt.getFullYear()).slice(-2);
-        return `${dd} ${mon} ${yy}`;
+        const mm = String(dt.getMonth() + 1).padStart(2, "0");
+        const yyyy = dt.getFullYear();
+        return `${dd}-${mm}-${yyyy}`;
     }
 
-    // Combine shift date + shift time string into "26 Jan 26 08:30"
+    // Combine shift date + shift time string into "26-01-2026 08:30"
     function formatPlanTime(tripDate, shiftTime) {
         const datePart = formatShiftDate(tripDate);
         const timePart = String(shiftTime || "").trim();
@@ -555,6 +554,18 @@
 
                     if (col1.toUpperCase().includes("UNITED FACILITIES")) {
                         const loginParts = String(row[2] || "").trim().split(' ');
+                        // Detect MARSHALL in any column from col 11 onwards
+                        let marshalVal = "";
+                        for (let ci = 11; ci < row.length; ci++) {
+                            const cv = String(row[ci] || "").trim().toUpperCase();
+                            if (cv === "MARSHALL" || cv === "MARSHAL") {
+                                marshalVal = "MARSHALL";
+                                break;
+                            } else if (cv.length > 0 && cv !== "0") {
+                                // non-empty, non-zero value could be marshal name
+                                marshalVal = String(row[ci]).trim();
+                            }
+                        }
                         currentHeader = {
                             TRIP_DATE:     row[0],
                             AGENCY_NAME:   "UNITED FACILITIES",
@@ -564,7 +575,8 @@
                             DRIVER_MOBILE: String(row[6] || ""),
                             TRIP_ID:       currentTripId,
                             DIRECTION:     (loginParts[0] || "").toUpperCase().replace('LOGIN','PICKUP').replace('LOGOUT','DROP'),
-                            SHIFT_TIME:    loginParts.length > 1 ? loginParts[1] : ""
+                            SHIFT_TIME:    loginParts.length > 1 ? loginParts[1] : "",
+                            MARSHAL_VAL:   marshalVal
                         };
                     }
 
@@ -632,7 +644,7 @@
                 "PLAN TIME":      formatPlanTime(r.TRIP_DATE, r.SHIFT_TIME),
                 "LOCALITY":       r.REPORTING_LOCATION,
                 "KILOMETER":      "",
-                "MARSHAL":        "",
+                "MARSHAL":        r.MARSHAL_VAL || "",
                 "REMARK":         ""
             }));
             ws = XLSX.utils.json_to_sheet(rows);
@@ -665,7 +677,7 @@
                 "DRIVER MOBILE":      r.DRIVER_MOBILE,
                 "EMP COUNT":          empCountMapOp[String(r.TRIP_ID || "")] || 1,
                 "VENDOR":             r.AGENCY_NAME,
-                "MARSHAL":            ""
+                "MARSHAL":            r.MARSHAL_VAL || ""
             }));
             ws = XLSX.utils.json_to_sheet(opRows);
 
