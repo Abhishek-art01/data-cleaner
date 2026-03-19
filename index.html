@@ -402,10 +402,12 @@
         const range = XLSX.utils.decode_range(ws['!ref']);
         const colWidths = new Array(range.e.c - range.s.c + 1).fill(10);
 
-        // ── Row heights ──
-        const rowHeights = [];
-        for (let R = range.s.r; R <= range.e.r; R++) rowHeights.push({ hpt: 30 });
-        ws['!rows'] = rowHeights;
+        // ── Row heights: only set if not already defined ──
+        if (!ws['!rows']) {
+            const rowHeights = [];
+            for (let R = range.s.r; R <= range.e.r; R++) rowHeights.push({ hpt: 30 });
+            ws['!rows'] = rowHeights;
+        }
 
         for (let R = range.s.r; R <= range.e.r; R++) {
             for (let C = range.s.c; C <= range.e.c; C++) {
@@ -446,16 +448,16 @@
             }
         }
 
-        // ── Column widths: clamp 10–50, overrides for known cols ──
-        ws['!cols'] = colWidths.map((w, i) => {
-            // Check header value for special columns
-            const headerAddr = XLSX.utils.encode_cell({ r: headerRow, c: range.s.c + i });
-            const headerVal  = (ws[headerAddr] && ws[headerAddr].v) ? String(ws[headerAddr].v).toLowerCase().trim() : "";
-
-            if (["address", "employee address"].includes(headerVal)) return { wch: 80 };
-            if (["employee name", "employee_name"].includes(headerVal)) return { wch: 30 };
-            return { wch: Math.min(Math.max(w, 10), 50) };
-        });
+        // ── Column widths: only set if not already defined (roster sets its own) ──
+        if (!ws['!cols']) {
+            ws['!cols'] = colWidths.map((w, i) => {
+                const headerAddr = XLSX.utils.encode_cell({ r: headerRow, c: range.s.c + i });
+                const headerVal  = (ws[headerAddr] && ws[headerAddr].v) ? String(ws[headerAddr].v).toLowerCase().trim() : "";
+                if (["address", "employee address"].includes(headerVal)) return { wch: 80 };
+                if (["employee name", "employee_name"].includes(headerVal)) return { wch: 30 };
+                return { wch: Math.min(Math.max(w, 10), 50) };
+            });
+        }
 
         return ws;
     }
@@ -473,15 +475,28 @@
         return String(v);
     }
 
-    // Format: "26-01-2026"
+    // Format: "26 Jan 26"
     function formatShiftDate(v) {
         if (!v) return "";
         let dt = v instanceof Date ? v : new Date(v);
         if (isNaN(dt.getTime())) return String(v);
-        const dd = String(dt.getDate()).padStart(2, "0");
-        const mm = String(dt.getMonth() + 1).padStart(2, "0");
+        const dd  = String(dt.getDate()).padStart(2, "0");
+        const mm  = String(dt.getMonth() + 1).padStart(2, "0");
         const yyyy = dt.getFullYear();
         return `${dd}-${mm}-${yyyy}`;
+    }
+
+    // Subtract 2 hours from a shift time string like "05:45" -> "03:45"
+    function pickupTime(tripDate, shiftTime) {
+        const s = String(shiftTime || "").trim();
+        if (!s) return "";
+        const parts = s.split(":");
+        if (parts.length < 2) return s;
+        let h = parseInt(parts[0], 10);
+        const m = parts[1];
+        h = h - 2;
+        if (h < 0) h += 24;
+        return `${String(h).padStart(2,"0")}:${m}`;
     }
 
     // Combine shift date + shift time string into "26-01-2026 08:30"
@@ -554,18 +569,15 @@
 
                     if (col1.toUpperCase().includes("UNITED FACILITIES")) {
                         const loginParts = String(row[2] || "").trim().split(' ');
-                        // Detect MARSHALL in any column from col 11 onwards
+                        // Scan EVERY cell in this row for MARSHALL/MARSHAL keyword
                         let marshalVal = "";
-                        for (let ci = 11; ci < row.length; ci++) {
-                            const cv = String(row[ci] || "").trim().toUpperCase();
-                            if (cv === "MARSHALL" || cv === "MARSHAL") {
-                                marshalVal = "MARSHALL";
-                                break;
-                            } else if (cv.length > 0 && cv !== "0") {
-                                // non-empty, non-zero value could be marshal name
-                                marshalVal = String(row[ci]).trim();
-                            }
+                        const rowStr = row.map(c => String(c || "").trim().toUpperCase());
+                        if (rowStr.some(c => c === "MARSHALL" || c === "MARSHAL")) {
+                            marshalVal = "MARSHALL";
                         }
+                        // Debug: log row contents to console for troubleshooting
+                        console.log("[HEADER ROW]", row);
+                        console.log("[MARSHAL DETECTED]", marshalVal);
                         currentHeader = {
                             TRIP_DATE:     row[0],
                             AGENCY_NAME:   "UNITED FACILITIES",
@@ -629,6 +641,7 @@
                 const tid = String(r.TRIP_ID || "");
                 empCountMap[tid] = (empCountMap[tid] || 0) + 1;
             });
+            const seenTripIds = new Set();
             const rows = data.map((r, idx) => ({
                 "SR.NO":          idx + 1,
                 "SHIFT DATE":     formatShiftDate(r.TRIP_DATE),
@@ -645,6 +658,7 @@
                 "LOCALITY":       r.REPORTING_LOCATION,
                 "KILOMETER":      "",
                 "MARSHAL":        r.MARSHAL_VAL || "",
+                "BILLABLE COUNT": (() => { const tid = String(r.TRIP_ID || ""); if (!seenTripIds.has(tid)) { seenTripIds.add(tid); return 1; } return 0; })(),
                 "REMARK":         ""
             }));
             ws = XLSX.utils.json_to_sheet(rows);
@@ -656,6 +670,7 @@
                 const tid = String(r.TRIP_ID || "");
                 empCountMapOp[tid] = (empCountMapOp[tid] || 0) + 1;
             });
+            const seenTripIdsOp = new Set();
             const opRows = data.map((r, idx) => ({
                 "SR.NO":              idx + 1,
                 "SHIFT DATE":         formatShiftDate(r.TRIP_DATE),
@@ -677,35 +692,146 @@
                 "DRIVER MOBILE":      r.DRIVER_MOBILE,
                 "EMP COUNT":          empCountMapOp[String(r.TRIP_ID || "")] || 1,
                 "VENDOR":             r.AGENCY_NAME,
-                "MARSHAL":            r.MARSHAL_VAL || ""
+                "MARSHAL":            r.MARSHAL_VAL || "",
+                "BILLABLE COUNT": (() => { const tid = String(r.TRIP_ID || ""); if (!seenTripIdsOp.has(tid)) { seenTripIdsOp.add(tid); return 1; } return 0; })()
             }));
             ws = XLSX.utils.json_to_sheet(opRows);
 
         } else if (type === 'roster') {
-            log("Formatting: Roster (grouped by trip)…");
+            log("Formatting: Pickup Roster…");
 
-            data.sort((a, b) => String(a.SHIFT_TIME || "").localeCompare(String(b.SHIFT_TIME || "")));
+            data.sort((a, b) => {
+                const toMins = t => { const p = String(t||'').trim().split(':'); return p.length>=2 ? parseInt(p[0],10)*60+parseInt(p[1],10) : 0; };
+                return toMins(a.SHIFT_TIME) - toMins(b.SHIFT_TIME);
+            });
 
+            // Build ordered trip keys preserving sort order
             const byTrip = {};
-            data.forEach(r => { if (!byTrip[r.TRIP_ID]) byTrip[r.TRIP_ID] = []; byTrip[r.TRIP_ID].push(r); });
+            const orderedTripKeys = [];
+            data.forEach(r => {
+                const tid = String(r.TRIP_ID || "");
+                if (!byTrip[tid]) { byTrip[tid] = []; orderedTripKeys.push(tid); }
+                byTrip[tid].push(r);
+            });
 
+            // Column headers
+            const COLS = ["DATE","TRIP ID","FLT NO.","SAP ID","EMP NAME","EMPLOYEE ADDRESS","LANDMARK","DROP LOCATION","PICKUP TIME","AIRPORT DROP TIME","UNITED FACILITIES","CAB REG NO"];
+
+            // Build AOA: repeat header before every trip group
             const aoa = [];
-            for (const trip in byTrip) {
+            aoa.push(COLS); // first header
+
+            for (const trip of orderedTripKeys) {
                 const rows = byTrip[trip];
                 const h = rows[0];
-                aoa.push([]);
-                aoa.push(["TRIP DATE","AGENCY NAME","LOGIN/SHIFT","VEHICLE NO","DRIVER NAME","DRIVER MOBILE","TRIP ID"]);
-                aoa.push([formatDate(h.TRIP_DATE), h.AGENCY_NAME, `${h.DIRECTION} ${h.SHIFT_TIME}`, h.VEHICLE_NO, h.DRIVER_NAME, h.DRIVER_MOBILE, h.TRIP_ID]);
-                aoa.push(["PAX NO","REPORTING TIME","EMP ID","NAME","GENDER","CATEGORY","FLIGHT","ADDRESS","LOCATION","LANDMARK","MOBILE"]);
-                rows.forEach(p => aoa.push([p.PAX_NO,p.REPORTING_TIME,p.EMPLOYEE_ID,p.EMPLOYEE_NAME,p.GENDER,p.EMP_CATEGORY,p.FLIGHT_NO,p.ADDRESS,p.REPORTING_LOCATION,p.LANDMARK,p.PASSENGER_MOBILE]));
+                const unitedFacCol = h.MARSHAL_VAL ? h.MARSHAL_VAL : "";
+
+                rows.forEach(p => {
+                    aoa.push([
+                        formatShiftDate(p.TRIP_DATE),
+                        String(p.TRIP_ID || ""),
+                        p.FLIGHT_NO,
+                        String(p.EMPLOYEE_ID || ""),
+                        p.EMPLOYEE_NAME,
+                        p.ADDRESS,
+                        p.LANDMARK,
+                        p.REPORTING_LOCATION,
+                        pickupTime(p.TRIP_DATE, p.SHIFT_TIME),
+                        p.SHIFT_TIME,
+                        unitedFacCol,
+                        p.VEHICLE_NO
+                    ]);
+                });
+
+                // Spacer row then repeat header before next trip
+                aoa.push([]); // blank spacer
+                aoa.push(COLS); // repeat header
             }
+
+            // Remove last repeated header (trailing)
+            aoa.pop();
+            aoa.pop();
+
             ws = XLSX.utils.aoa_to_sheet(aoa);
+
+            // ── Landscape A4 print settings ──
+            ws['!pageSetup'] = {
+                orientation: "landscape",
+                paperSize: 9,       // A4
+                fitToPage: true,
+                fitToWidth: 1,
+                fitToHeight: 0,
+                scale: 100
+            };
+            ws['!printOptions'] = { gridLines: true };
+            ws['!margins'] = { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 };
+            // Row height 40 for all rows; headers get 25
+            const rosterRowHeights = [];
+            for (let ri = 0; ri < aoa.length; ri++) rosterRowHeights.push({ hpt: 40 });
+            ws['!rows'] = rosterRowHeights;
+
+            // Fixed col widths tuned for landscape A4 (total ~140 chars across 12 cols)
+            ws['!cols'] = [
+                { wch: 10 }, // DATE
+                { wch: 7  }, // TRIP ID
+                { wch: 7  }, // FLT NO.
+                { wch: 8  }, // SAP ID
+                { wch: 15 }, // EMP NAME
+                { wch: 55 }, // EMPLOYEE ADDRESS
+                { wch: 15 }, // LANDMARK
+                { wch: 10 }, // DROP LOCATION
+                { wch: 7  }, // PICKUP TIME
+                { wch: 7  }, // AIRPORT DROP TIME
+                { wch: 10 }, // UNITED FACILITIES
+                { wch: 11 }, // CAB REG NO
+            ];
         }
 
         // ── Apply full formatting ──
         log("Applying Excel styles…");
-        applySheetStyling(ws);
+        // For roster, apply styling but skip re-writing headers (already uppercase)
+        applySheetStyling(ws, type === 'roster' ? -1 : 0); // pass -1 to style ALL rows as headers where row index matches COLS row
+        
+        // For roster: style every header row (rows where col[0] === "DATE")
+        if (type === 'roster' && ws && ws['!ref']) {
+            const range = XLSX.utils.decode_range(ws['!ref']);
+            for (let R = range.s.r; R <= range.e.r; R++) {
+                const cell0 = ws[XLSX.utils.encode_cell({r: R, c: 0})];
+                if (cell0 && String(cell0.v).trim().toUpperCase() === "DATE") {
+                    for (let C = range.s.c; C <= range.e.c; C++) {
+                        const addr = XLSX.utils.encode_cell({r: R, c: C});
+                        if (!ws[addr]) ws[addr] = {v: "", t: "s"};
+                        ws[addr].s = {
+                            fill: { patternType: "solid", fgColor: { rgb: "366092" } },
+                            font: { name: "Cambria", sz: 10, bold: true, color: { rgb: "FFFFFF" } },
+                            alignment: { horizontal: "center", vertical: "center", wrapText: true },
+                            border: { top:{style:"thin",color:{rgb:"B0B0B0"}}, bottom:{style:"thin",color:{rgb:"B0B0B0"}}, left:{style:"thin",color:{rgb:"B0B0B0"}}, right:{style:"thin",color:{rgb:"B0B0B0"}} }
+                        };
+                    }
+                    ws['!rows'] = ws['!rows'] || [];
+                    ws['!rows'][R] = { hpt: 25 };
+                    // Address column (col 5) top-align for data rows handled below
+                }
+            }
+        }
 
+        // Address col top-align for roster data rows
+        if (type === 'roster' && ws && ws['!ref']) {
+            const rng = XLSX.utils.decode_range(ws['!ref']);
+            for (let R = rng.s.r; R <= rng.e.r; R++) {
+                const c0 = ws[XLSX.utils.encode_cell({r:R,c:0})];
+                const isHdr = c0 && String(c0.v).trim().toUpperCase() === "DATE";
+                if (!isHdr) {
+                    const addrCell = ws[XLSX.utils.encode_cell({r:R,c:5})];
+                    if (addrCell) {
+                        addrCell.s = addrCell.s || {};
+                        addrCell.s.alignment = { horizontal:"center", vertical:"top", wrapText:true };
+                        addrCell.s.font = { name:"Cambria", sz:10 };
+                        addrCell.s.border = { top:{style:"thin",color:{rgb:"B0B0B0"}}, bottom:{style:"thin",color:{rgb:"B0B0B0"}}, left:{style:"thin",color:{rgb:"B0B0B0"}}, right:{style:"thin",color:{rgb:"B0B0B0"}} };
+                    }
+                }
+            }
+        }
         XLSX.utils.book_append_sheet(wb, ws, "Cleaned Data");
         log("Downloading file…");
         XLSX.writeFile(wb, `Cleaned_${type.toUpperCase()}_Data.xlsx`);
