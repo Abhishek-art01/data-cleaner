@@ -473,6 +473,28 @@
         return String(v);
     }
 
+    // Format: "26 Jan 26"
+    function formatShiftDate(v) {
+        if (!v) return "";
+        let dt = v instanceof Date ? v : new Date(v);
+        if (isNaN(dt.getTime())) return String(v);
+        const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        const dd = String(dt.getDate()).padStart(2, "0");
+        const mon = months[dt.getMonth()];
+        const yy = String(dt.getFullYear()).slice(-2);
+        return `${dd} ${mon} ${yy}`;
+    }
+
+    // Combine shift date + shift time string into "26 Jan 26 08:30"
+    function formatPlanTime(tripDate, shiftTime) {
+        const datePart = formatShiftDate(tripDate);
+        const timePart = String(shiftTime || "").trim();
+        if (!datePart && !timePart) return "";
+        if (!timePart) return datePart;
+        if (!datePart) return timePart;
+        return `${datePart} ${timePart}`;
+    }
+
     function formatDateTime(v) {
         if (!v) return "";
         let dt = null;
@@ -589,9 +611,16 @@
 
         if (type === 'billing') {
             log("Formatting: Billing Database…");
+            // Build emp count map per trip
+            const empCountMap = {};
+            data.forEach(r => {
+                const tid = String(r.TRIP_ID || "");
+                empCountMap[tid] = (empCountMap[tid] || 0) + 1;
+            });
             const rows = data.map((r, idx) => ({
                 "SR.NO":          idx + 1,
-                "SHIFT DATE":     formatDate(r.TRIP_DATE),
+                "SHIFT DATE":     formatShiftDate(r.TRIP_DATE),
+                "DIRECTION":      r.DIRECTION,
                 "TRIP ID":        String(r.TRIP_ID || ""),
                 "FLIGHT NUMBER":  r.FLIGHT_NO,
                 "EMPLOYEE ID":    String(r.EMPLOYEE_ID || ""),
@@ -599,8 +628,8 @@
                 "EMPLOYEE NAME":  r.EMPLOYEE_NAME,
                 "ADDRESS":        r.ADDRESS,
                 "CAB REG NO":     r.VEHICLE_NO,
-                "PLAN TIME":      formatDateTime(r.REPORTING_TIME),
                 "SHIFT TIME":     r.SHIFT_TIME,
+                "PLAN TIME":      formatPlanTime(r.TRIP_DATE, r.SHIFT_TIME),
                 "LOCALITY":       r.REPORTING_LOCATION,
                 "KILOMETER":      "",
                 "MARSHAL":        "",
@@ -610,26 +639,33 @@
 
         } else if (type === 'operation') {
             log("Formatting: Operations (flat table)…");
+            const empCountMapOp = {};
+            data.forEach(r => {
+                const tid = String(r.TRIP_ID || "");
+                empCountMapOp[tid] = (empCountMapOp[tid] || 0) + 1;
+            });
             const opRows = data.map((r, idx) => ({
-                "SR.NO":          idx + 1,
-                "SHIFT DATE":     formatDate(r.TRIP_DATE),
-                "TRIP ID":        String(r.TRIP_ID || ""),
-                "FLIGHT NUMBER":  r.FLIGHT_NO,
-                "EMPLOYEE ID":    String(r.EMPLOYEE_ID || ""),
-                "GENDER":         r.GENDER,
-                "EMPLOYEE NAME":  r.EMPLOYEE_NAME,
-                "ADDRESS":        r.ADDRESS,
-                "CAB REG NO":     r.VEHICLE_NO,
-                "PLAN TIME":      formatDateTime(r.REPORTING_TIME),
-                "SHIFT TIME":     r.SHIFT_TIME,
-                "LOCALITY":       r.REPORTING_LOCATION,
-                "TRIP DIRECTION": r.DIRECTION,
-                "VENDOR":         r.AGENCY_NAME,
-                "LANDMARK":       r.LANDMARK,
-                "EMP CATEGORY":   r.EMP_CATEGORY,
-                "DRIVER NAME":    r.DRIVER_NAME,
-                "DRIVER MOBILE":  r.DRIVER_MOBILE,
-                "PAX MOBILE":     r.PASSENGER_MOBILE
+                "SR.NO":              idx + 1,
+                "SHIFT DATE":         formatShiftDate(r.TRIP_DATE),
+                "DIRECTION":          r.DIRECTION,
+                "TRIP ID":            String(r.TRIP_ID || ""),
+                "FLIGHT NUMBER":      r.FLIGHT_NO,
+                "EMPLOYEE ID":        String(r.EMPLOYEE_ID || ""),
+                "GENDER":             r.GENDER,
+                "EMPLOYEE NAME":      r.EMPLOYEE_NAME,
+                "EMPLOYEE MOBILE":    r.PASSENGER_MOBILE,
+                "ADDRESS":            r.ADDRESS,
+                "LANDMARK":           r.LANDMARK,
+                "CAB REG NO":         r.VEHICLE_NO,
+                "SHIFT TIME":         r.SHIFT_TIME,
+                "PLAN TIME":          formatPlanTime(r.TRIP_DATE, r.SHIFT_TIME),
+                "REPORTING LOCATION": r.REPORTING_LOCATION,
+                "EMP CATEGORY":       r.EMP_CATEGORY,
+                "DRIVER NAME":        r.DRIVER_NAME,
+                "DRIVER MOBILE":      r.DRIVER_MOBILE,
+                "EMP COUNT":          empCountMapOp[String(r.TRIP_ID || "")] || 1,
+                "VENDOR":             r.AGENCY_NAME,
+                "MARSHAL":            ""
             }));
             ws = XLSX.utils.json_to_sheet(opRows);
 
