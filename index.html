@@ -715,7 +715,7 @@
             });
 
             // Column headers
-            const COLS = ["DATE","TRIP ID","FLT NO.","SAP ID","EMP NAME","EMPLOYEE ADDRESS","LANDMARK","DROP LOCATION","PICKUP TIME","AIRPORT DROP TIME","UNITED FACILITIES","CAB REG NO"];
+            const COLS = ["DATE","TRIP ID","FLT NO.","SAP ID","EMP NAME","EMPLOYEE ADDRESS","LANDMARK","DROP LOCATION","PICKUP TIME","AIRPORT DROP TIME","UNITED FACILITIES","CAB REG NO", "EMP CONTACT NO"];
 
             // Build AOA: repeat header before every trip group
             const aoa = [];
@@ -739,7 +739,8 @@
                         pickupTime(p.TRIP_DATE, p.SHIFT_TIME),
                         p.SHIFT_TIME,
                         unitedFacCol,
-                        p.VEHICLE_NO
+                        p.VEHICLE_NO,
+                        p.PASSENGER_MOBILE // <-- Added contact number here
                     ]);
                 });
 
@@ -784,6 +785,8 @@
                 { wch: 7  }, // AIRPORT DROP TIME
                 { wch: 10 }, // UNITED FACILITIES
                 { wch: 11 }, // CAB REG NO
+                { wch: 11 }, // EMP CONTACT NO
+
             ];
         }
 
