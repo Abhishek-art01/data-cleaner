@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raw Data Cleaner</title>
+    <link rel="icon" type="image/png" href="https://cdn-icons-png.flaticon.com/512/10179/10179118.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+
+    <style>
+        :root {
+            --navy:   #0d1b2a;
+            --navy2:  #1b2e42;
+            --blue:   #2563eb;
+            --blue-l: #3b82f6;
+            --accent: #00c2ff;
+            --green:  #10b981;
+            --red:    #f43f5e;
+            --white:  #f8fafc;
+            --muted:  #94a3b8;
+            --border: #e2e8f0;
+            --card:   #ffffff;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--navy);
+            min-height: 100vh;
+            font-family: 'Bricolage Grotesque', sans-serif;
+            color: var(--white);
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 48px 16px 80px;
+
+            /* subtle grid pattern */
+            background-image:
+                linear-gradient(rgba(255,255,255,.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,.03) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+
+        /* Glow blob */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -200px; left: 50%;
+            transform: translateX(-50%);
+            width: 700px; height: 500px;
+            background: radial-gradient(ellipse, rgba(37,99,235,.18) 0%, transparent 70%);
+            pointer-events: none;
+        }
+
+        .card {
+            background: rgba(255,255,255,.04);
+            border: 1px solid rgba(255,255,255,.09);
+            border-radius: 20px;
+            padding: 48px;
+            width: 100%;
+            max-width: 700px;
+            backdrop-filter: blur(16px);
+            box-shadow: 0 32px 80px rgba(0,0,0,.5);
+        }
+
+        /* ── Header ── */
+        .brand-row {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 8px;
+        }
+        .brand-icon {
+            width: 44px; height: 44px;
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            overflow: hidden;
+            box-shadow: 0 0 0 4px rgba(37,99,235,.25);
+            background: var(--navy2);
+            flex-shrink: 0;
+        }
+        .brand-icon img {
+            width: 100%; height: 100%;
+            object-fit: cover;
+            border-radius: 10px;
+        }
+        h1 {
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            color: var(--white);
+        }
+        .subtitle {
+            font-size: 14px;
+            color: var(--muted);
+            margin-bottom: 40px;
+            padding-left: 58px;
+            line-height: 1.5;
+        }
+
+        /* ── Labels ── */
+        .field-label {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: .12em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 10px;
+            display: block;
+        }
+        .field-group { margin-bottom: 32px; }
+
+        /* ── Drop zone ── */
+        .drop-zone {
+            border: 2px dashed rgba(255,255,255,.14);
+            border-radius: 14px;
+            padding: 36px 24px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color .2s, background .2s;
+            background: rgba(255,255,255,.02);
+            position: relative;
+        }
+        .drop-zone:hover, .drop-zone.dragover {
+            border-color: var(--blue-l);
+            background: rgba(37,99,235,.07);
+        }
+        .drop-icon {
+            font-size: 34px;
+            margin-bottom: 10px;
+            opacity: .5;
+        }
+        .drop-text {
+            font-size: 14px;
+            color: var(--muted);
+        }
+        .drop-text span {
+            color: var(--blue-l);
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
+        .drop-zone input[type="file"] {
+            position: absolute; inset: 0;
+            opacity: 0; cursor: pointer;
+        }
+        #file-count {
+            display: inline-block;
+            margin-top: 10px;
+            font-size: 12px;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent);
+            background: rgba(0,194,255,.08);
+            border: 1px solid rgba(0,194,255,.2);
+            padding: 3px 12px;
+            border-radius: 20px;
+        }
+
+        /* ── Format Selector ── */
+        .format-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+        .format-card {
+            position: relative;
+            cursor: pointer;
+        }
+        .format-card input[type="radio"] { display: none; }
+        .format-inner {
+            border: 2px solid rgba(255,255,255,.08);
+            border-radius: 12px;
+            padding: 18px 12px;
+            text-align: center;
+            transition: all .2s;
+            background: rgba(255,255,255,.02);
+        }
+        .format-card:hover .format-inner {
+            border-color: rgba(255,255,255,.22);
+            background: rgba(255,255,255,.04);
+        }
+        .format-card input:checked + .format-inner {
+            border-color: var(--blue-l);
+            background: rgba(37,99,235,.12);
+            box-shadow: 0 0 0 4px rgba(37,99,235,.12);
+        }
+        .format-emoji { font-size: 22px; margin-bottom: 6px; }
+        .format-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--white);
+            line-height: 1.3;
+        }
+        .format-sub {
+            font-size: 11px;
+            color: var(--muted);
+            margin-top: 3px;
+        }
+
+        /* ── Button ── */
+        #processBtn {
+            width: 100%;
+            background: var(--blue);
+            color: #fff;
+            font-family: 'Bricolage Grotesque', sans-serif;
+            font-size: 15px;
+            font-weight: 700;
+            padding: 16px 24px;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            letter-spacing: .02em;
+            transition: background .2s, transform .1s, box-shadow .2s;
+            box-shadow: 0 4px 24px rgba(37,99,235,.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        #processBtn:hover:not(:disabled) {
+            background: var(--blue-l);
+            box-shadow: 0 6px 32px rgba(59,130,246,.5);
+            transform: translateY(-1px);
+        }
+        #processBtn:active:not(:disabled) { transform: translateY(0); }
+        #processBtn:disabled {
+            opacity: .6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* ── Log ── */
+        #log {
+            display: none;
+            margin-top: 20px;
+            background: rgba(0,0,0,.35);
+            border: 1px solid rgba(255,255,255,.07);
+            border-radius: 10px;
+            padding: 14px 16px;
+            height: 140px;
+            overflow-y: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--muted);
+            line-height: 1.7;
+        }
+        #log .log-success { color: var(--green); }
+        #log .log-error   { color: var(--red); }
+        #log .log-info    { color: var(--accent); }
+
+        /* ── Spinner ── */
+        .spinner {
+            width: 18px; height: 18px;
+            border: 2px solid rgba(255,255,255,.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin .7s linear infinite;
+            display: none;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Scrollbar */
+        #log::-webkit-scrollbar { width: 4px; }
+        #log::-webkit-scrollbar-track { background: transparent; }
+        #log::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 2px; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+
+    <div class="brand-row">
+        <div class="brand-icon">
+            <img src="https://cdn-icons-png.flaticon.com/512/10179/10179118.png" alt="Data Cleaner logo">
+        </div>
+        <h1>Data Cleaner</h1>
+    </div>
+    <p class="subtitle">Process raw transport Excel files securely in your browser.<br>No data is uploaded to any server.</p>
+
+    <div class="field-group">
+        <span class="field-label">Upload Raw Excel Files</span>
+        <div class="drop-zone" id="dropZone">
+            <div class="drop-icon">📂</div>
+            <p class="drop-text">Drop files here or <span>browse to upload</span></p>
+            <input id="file-upload" type="file" multiple accept=".xlsx,.xls,.csv">
+        </div>
+        <span id="file-count">No files selected</span>
+    </div>
+
+    <div class="field-group">
+        <span class="field-label">Output Format</span>
+        <div class="format-grid">
+            <label class="format-card">
+                <input type="radio" name="exportType" value="billing" checked>
+                <div class="format-inner">
+                    <div class="format-emoji">🧾</div>
+                    <div class="format-name">Billing</div>
+                    <div class="format-sub">Database format</div>
+                </div>
+            </label>
+            <label class="format-card">
+                <input type="radio" name="exportType" value="operation">
+                <div class="format-inner">
+                    <div class="format-emoji">⚙️</div>
+                    <div class="format-name">Operations</div>
+                    <div class="format-sub">Clean flat table</div>
+                </div>
+            </label>
+            <label class="format-card">
+                <input type="radio" name="exportType" value="roster">
+                <div class="format-inner">
+                    <div class="format-emoji">📋</div>
+                    <div class="format-name">Roster</div>
+                    <div class="format-sub">Grouped by trip</div>
+                </div>
+            </label>
+        </div>
+    </div>
+
+    <button id="processBtn">
+        <span id="btnText">Process &amp; Download</span>
+        <div class="spinner" id="spinner"></div>
+    </button>
+
+    <div id="log"></div>
+
+</div>
+
+<script>
+    // ─────────────────────────────────────────
+    // UI Wiring
+    // ─────────────────────────────────────────
+    const fileInput   = document.getElementById('file-upload');
+    const fileCount   = document.getElementById('file-count');
+    const processBtn  = document.getElementById('processBtn');
+    const logDiv      = document.getElementById('log');
+    const spinner     = document.getElementById('spinner');
+    const btnText     = document.getElementById('btnText');
+    const dropZone    = document.getElementById('dropZone');
+
+    fileInput.addEventListener('change', updateCount);
+    dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', e => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        fileInput.files = e.dataTransfer.files;
+        updateCount();
+    });
+
+    function updateCount() {
+        const n = fileInput.files.length;
+        fileCount.textContent = n > 0 ? `${n} file${n > 1 ? 's' : ''} selected` : 'No files selected';
+    }
+
+    function log(msg, type = '') {
+        logDiv.style.display = 'block';
+        const div = document.createElement('div');
+        div.className = type ? `log-${type}` : '';
+        div.textContent = '> ' + msg;
+        logDiv.appendChild(div);
+        logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    function setLoading(on) {
+        processBtn.disabled = on;
+        btnText.textContent  = on ? 'Processing…' : 'Process & Download';
+        spinner.style.display = on ? 'block' : 'none';
+    }
+
+    // ─────────────────────────────────────────
+    // Excel Styling  (mirrors Python format_excel_sheet)
+    // ─────────────────────────────────────────
+    const HEADER_FILL   = { patternType: "solid", fgColor: { rgb: "366092" } };
+    const HEADER_FONT   = { name: "Cambria", sz: 11, bold: true, color: { rgb: "FFFFFF" } };
+    const CELL_FONT     = { name: "Cambria", sz: 10 };
+    const CENTER_WRAP   = { horizontal: "center", vertical: "center", wrapText: true };
+    const THIN_BORDER   = {
+        top:    { style: "thin", color: { rgb: "B0B0B0" } },
+        bottom: { style: "thin", color: { rgb: "B0B0B0" } },
+        left:   { style: "thin", color: { rgb: "B0B0B0" } },
+        right:  { style: "thin", color: { rgb: "B0B0B0" } }
+    };
+
+    /**
+     * Apply full styling to a worksheet object (xlsx-js-style).
+     * Mirrors the Python format_excel_sheet() function.
+     * @param {object} ws   - worksheet
+     * @param {number} headerRow - 0-based row index for the header (default 0)
+     */
+    function applySheetStyling(ws, headerRow = 0) {
+        if (!ws || !ws['!ref']) return ws;
+
+        const range = XLSX.utils.decode_range(ws['!ref']);
+        const colWidths = new Array(range.e.c - range.s.c + 1).fill(10);
+
+        // ── Row heights: only set if not already defined ──
+        if (!ws['!rows']) {
+            const rowHeights = [];
+            for (let R = range.s.r; R <= range.e.r; R++) rowHeights.push({ hpt: 30 });
+            ws['!rows'] = rowHeights;
+        }
+
+        for (let R = range.s.r; R <= range.e.r; R++) {
+            for (let C = range.s.c; C <= range.e.c; C++) {
+                const addr = XLSX.utils.encode_cell({ r: R, c: C });
+
+                // Ensure cell exists
+                if (!ws[addr]) ws[addr] = { v: "", t: "s" };
+
+                const isHeader = (R === headerRow);
+                let cellValue = ws[addr].v != null ? String(ws[addr].v) : "";
+
+                if (isHeader) {
+                    // Headers already formatted — only convert snake_case if needed
+                    if (cellValue.includes("_")) {
+                        cellValue = cellValue.replace(/_/g, " ").toUpperCase();
+                        ws[addr].v = cellValue;
+                    }
+                    ws[addr].t = "s";
+
+                    ws[addr].s = {
+                        fill:      HEADER_FILL,
+                        font:      HEADER_FONT,
+                        alignment: CENTER_WRAP,
+                        border:    THIN_BORDER
+                    };
+                } else {
+                    ws[addr].s = {
+                        font:      CELL_FONT,
+                        alignment: CENTER_WRAP,
+                        border:    THIN_BORDER
+                    };
+                }
+
+                // ── Track max content width for auto-fit ──
+                const contentLen = cellValue.length + 2;
+                const colIdx = C - range.s.c;
+                if (contentLen > colWidths[colIdx]) colWidths[colIdx] = contentLen;
+            }
+        }
+
+        // ── Column widths: only set if not already defined (roster sets its own) ──
+        if (!ws['!cols']) {
+            ws['!cols'] = colWidths.map((w, i) => {
+                const headerAddr = XLSX.utils.encode_cell({ r: headerRow, c: range.s.c + i });
+                const headerVal  = (ws[headerAddr] && ws[headerAddr].v) ? String(ws[headerAddr].v).toLowerCase().trim() : "";
+                if (["address", "employee address"].includes(headerVal)) return { wch: 80 };
+                if (["employee name", "employee_name"].includes(headerVal)) return { wch: 30 };
+                return { wch: Math.min(Math.max(w, 10), 50) };
+            });
+        }
+
+        return ws;
+    }
+
+    // ─────────────────────────────────────────
+    // Date Formatting Helper
+    // ─────────────────────────────────────────
+    function formatDate(v) {
+        if (!v) return "";
+        if (v instanceof Date) {
+            const d = String(v.getDate()).padStart(2, '0');
+            const m = String(v.getMonth() + 1).padStart(2, '0');
+            return `${d}-${m}-${v.getFullYear()}`;
+        }
+        return String(v);
+    }
+
+    // Format: "26 Jan 26"
+    function formatShiftDate(v) {
+        if (!v) return "";
+        let dt = v instanceof Date ? v : new Date(v);
+        if (isNaN(dt.getTime())) return String(v);
+        const dd  = String(dt.getDate()).padStart(2, "0");
+        const mm  = String(dt.getMonth() + 1).padStart(2, "0");
+        const yyyy = dt.getFullYear();
+        return `${dd}-${mm}-${yyyy}`;
+    }
+
+    // Subtract 2 hours from a shift time string like "05:45" -> "03:45"
+    function pickupTime(tripDate, shiftTime) {
+        const s = String(shiftTime || "").trim();
+        if (!s) return "";
+        const parts = s.split(":");
+        if (parts.length < 2) return s;
+        let h = parseInt(parts[0], 10);
+        const m = parts[1];
+        h = h - 2;
+        if (h < 0) h += 24;
+        return `${String(h).padStart(2,"0")}:${m}`;
+    }
+
+    // Combine shift date + shift time string into "26-01-2026 08:30"
+    function formatPlanTime(tripDate, shiftTime) {
+        const datePart = formatShiftDate(tripDate);
+        const timePart = String(shiftTime || "").trim();
+        if (!datePart && !timePart) return "";
+        if (!timePart) return datePart;
+        if (!datePart) return timePart;
+        return `${datePart} ${timePart}`;
+    }
+
+    function formatDateTime(v) {
+        if (!v) return "";
+        let dt = null;
+
+        if (v instanceof Date) {
+            dt = v;
+        } else if (typeof v === "number") {
+            const dateStr = XLSX.SSF.format("yyyy-mm-dd hh:mm:ss", v);
+            dt = new Date(dateStr);
+        } else {
+            const s = String(v).trim();
+            if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(s)) return s;
+            dt = new Date(s);
+        }
+
+        if (!dt || isNaN(dt.getTime())) return String(v);
+
+        const dd   = String(dt.getDate()).padStart(2, "0");
+        const mm   = String(dt.getMonth() + 1).padStart(2, "0");
+        const yyyy = dt.getFullYear();
+        const hh   = String(dt.getHours()).padStart(2, "0");
+        const min  = String(dt.getMinutes()).padStart(2, "0");
+        const ss   = String(dt.getSeconds()).padStart(2, "0");
+
+        if (yyyy > 1899) return `${dd}-${mm}-${yyyy} ${hh}:${min}:${ss}`;
+        return `${hh}:${min}:${ss}`;
+    }
+
+    // ─────────────────────────────────────────
+    // Main Processing
+    // ─────────────────────────────────────────
+    async function processFiles() {
+        if (!fileInput.files.length) { alert("Please upload at least one Excel file."); return; }
+
+        logDiv.innerHTML = '';
+        logDiv.style.display = 'block';
+        setLoading(true);
+
+        try {
+            let allRows = [];
+
+            for (const file of fileInput.files) {
+                log(`Reading: ${file.name}`);
+                const data     = await file.arrayBuffer();
+                const workbook = XLSX.read(data, { type: 'array', cellText: false, cellDates: true });
+                const sheet    = workbook.Sheets[workbook.SheetNames[0]];
+                const rawRows  = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+
+                let currentTripId = "";
+                let currentHeader = {};
+
+                rawRows.forEach(row => {
+                    const col0  = String(row[0]  || "").trim();
+                    const col1  = String(row[1]  || "").trim();
+                    const col10 = String(row[10] || "").trim();
+
+                    // Detect Header Row dynamically using Trip ID
+                    if (col10.startsWith('T')) {
+                        currentTripId = col10.replace('T', '');
+                        
+                        const loginParts = String(row[2] || "").trim().split(' ');
+                        
+                        let marshalVal = "";
+                        const rowStr = row.map(c => String(c || "").trim().toUpperCase());
+                        if (rowStr.some(c => c === "MARSHALL" || c === "MARSHAL")) {
+                            marshalVal = "MARSHALL";
+                        }
+
+                        // Dynamically extract Vendor Name
+                        let vendorName = col1;
+                        if (vendorName.includes('-')) {
+                            vendorName = vendorName.split('-')[0].trim();
+                        } else if (!vendorName) {
+                            vendorName = "UNITED FACILITIES"; // Fallback
+                        }
+
+                        currentHeader = {
+                            TRIP_DATE:     row[0],
+                            AGENCY_NAME:   vendorName,
+                            D_LOGIN:       String(row[2] || ""),
+                            VEHICLE_NO:    String(row[3] || "").replace(/-/g,'').replace(/ /g,'').toUpperCase(),
+                            DRIVER_NAME:   String(row[4] || ""),
+                            DRIVER_MOBILE: String(row[6] || ""),
+                            KILOMETER:     String(row[8] || ""), // Extract KMs dynamically
+                            TRIP_ID:       currentTripId,
+                            DIRECTION:     (loginParts[0] || "").toUpperCase().replace('LOGIN','PICKUP').replace('LOGOUT','DROP'),
+                            SHIFT_TIME:    loginParts.length > 1 ? loginParts[1] : "",
+                            MARSHAL_VAL:   marshalVal
+                        };
+                    }
+
+                    // Detect Passenger Row
+                    if (/^[0-9]+(\.[0-9]+)?$/.test(col0)) { // Accommodates "1.0" or "1"
+                        let office = String(row[8] || "").toUpperCase();
+                        if (["DELHI IGI T3","DELHI AIRPORT"].includes(office)) office = "Terminal-3";
+                        if (office === "DELHI IGI T2") office = "Terminal-2";
+
+                        allRows.push({
+                            ...currentHeader,
+                            PAX_NO:             row[0],
+                            REPORTING_TIME:     row[1],
+                            EMPLOYEE_ID:        row[2],
+                            EMPLOYEE_NAME:      row[3],
+                            GENDER:             row[4],
+                            EMP_CATEGORY:       row[5],
+                            FLIGHT_NO:          row[6],
+                            ADDRESS:            row[7],
+                            REPORTING_LOCATION: office,
+                            LANDMARK:           row[9],
+                            PASSENGER_MOBILE:   row[10]
+                        });
+                    }
+                });
+            }
+
+            log(`Merged ${allRows.length} passenger rows.`, 'info');
+            exportData(allRows, document.querySelector('input[name="exportType"]:checked').value);
+
+        } catch (err) {
+            log(`Error: ${err.message}`, 'error');
+            console.error(err);
+        } finally {
+            setLoading(false);
+        }
+    }
+
+    // ─────────────────────────────────────────
+    // Export
+    // ─────────────────────────────────────────
+    function exportData(data, type) {
+        const wb = XLSX.utils.book_new();
+        let ws;
+
+        if (type === 'billing') {
+            log("Formatting: Billing Database…");
+            // Build emp count map per trip
+            const empCountMap = {};
+            data.forEach(r => {
+                const tid = String(r.TRIP_ID || "");
+                empCountMap[tid] = (empCountMap[tid] || 0) + 1;
+            });
+            const seenTripIds = new Set();
+            const rows = data.map((r, idx) => ({
+                "SR.NO":          idx + 1,
+                "SHIFT DATE":     formatShiftDate(r.TRIP_DATE),
+                "DIRECTION":      r.DIRECTION,
+                "TRIP ID":        String(r.TRIP_ID || ""),
+                "FLIGHT NUMBER":  r.FLIGHT_NO,
+                "EMPLOYEE ID":    String(r.EMPLOYEE_ID || ""),
+                "GENDER":         r.GENDER,
+                "EMPLOYEE NAME":  r.EMPLOYEE_NAME,
+                "ADDRESS":        r.ADDRESS,
+                "CAB REG NO":     r.VEHICLE_NO,
+                "SHIFT TIME":     r.SHIFT_TIME,
+                "PLAN TIME":      formatPlanTime(r.TRIP_DATE, r.SHIFT_TIME),
+                "LOCALITY":       r.REPORTING_LOCATION,
+                "KILOMETER":      r.KILOMETER || "",
+                "MARSHAL":        r.MARSHAL_VAL || "",
+                "BILLABLE COUNT": (() => { const tid = String(r.TRIP_ID || ""); if (!seenTripIds.has(tid)) { seenTripIds.add(tid); return 1; } return 0; })(),
+                "REMARK":         ""
+            }));
+            ws = XLSX.utils.json_to_sheet(rows);
+
+        } else if (type === 'operation') {
+            log("Formatting: Operations (flat table)…");
+            const empCountMapOp = {};
+            data.forEach(r => {
+                const tid = String(r.TRIP_ID || "");
+                empCountMapOp[tid] = (empCountMapOp[tid] || 0) + 1;
+            });
+            const seenTripIdsOp = new Set();
+            const opRows = data.map((r, idx) => ({
+                "SR.NO":              idx + 1,
+                "SHIFT DATE":         formatShiftDate(r.TRIP_DATE),
+                "DIRECTION":          r.DIRECTION,
+                "TRIP ID":            String(r.TRIP_ID || ""),
+                "FLIGHT NUMBER":      r.FLIGHT_NO,
+                "EMPLOYEE ID":        String(r.EMPLOYEE_ID || ""),
+                "GENDER":             r.GENDER,
+                "EMPLOYEE NAME":      r.EMPLOYEE_NAME,
+                "EMPLOYEE MOBILE":    r.PASSENGER_MOBILE,
+                "ADDRESS":            r.ADDRESS,
+                "LANDMARK":           r.LANDMARK,
+                "CAB REG NO":         r.VEHICLE_NO,
+                "SHIFT TIME":         r.SHIFT_TIME,
+                "PLAN TIME":          formatPlanTime(r.TRIP_DATE, r.SHIFT_TIME),
+                "REPORTING LOCATION": r.REPORTING_LOCATION,
+                "EMP CATEGORY":       r.EMP_CATEGORY,
+                "DRIVER NAME":        r.DRIVER_NAME,
+                "DRIVER MOBILE":      r.DRIVER_MOBILE,
+                "EMP COUNT":          empCountMapOp[String(r.TRIP_ID || "")] || 1,
+                "VENDOR":             r.AGENCY_NAME,
+                "MARSHAL":            r.MARSHAL_VAL || "",
+                "BILLABLE COUNT": (() => { const tid = String(r.TRIP_ID || ""); if (!seenTripIdsOp.has(tid)) { seenTripIdsOp.add(tid); return 1; } return 0; })()
+            }));
+            ws = XLSX.utils.json_to_sheet(opRows);
+
+        } else if (type === 'roster') {
+            log("Formatting: Pickup Roster…");
+
+            data.sort((a, b) => {
+                const toMins = t => { const p = String(t||'').trim().split(':'); return p.length>=2 ? parseInt(p[0],10)*60+parseInt(p[1],10) : 0; };
+                return toMins(a.SHIFT_TIME) - toMins(b.SHIFT_TIME);
+            });
+
+            // Build ordered trip keys preserving sort order
+            const byTrip = {};
+            const orderedTripKeys = [];
+            data.forEach(r => {
+                const tid = String(r.TRIP_ID || "");
+                if (!byTrip[tid]) { byTrip[tid] = []; orderedTripKeys.push(tid); }
+                byTrip[tid].push(r);
+            });
+
+            // Column headers
+            const COLS = ["DATE","TRIP ID","FLT NO.","SAP ID","EMP NAME","EMPLOYEE ADDRESS","LANDMARK","DROP LOCATION","PICKUP TIME","AIRPORT DROP TIME","UNITED FACILITIES","CAB REG NO", "EMP CONTACT NO"];
+
+            // Build AOA: repeat header before every trip group
+            const aoa = [];
+            aoa.push(COLS); // first header
+
+            for (const trip of orderedTripKeys) {
+                const rows = byTrip[trip];
+                const h = rows[0];
+                const unitedFacCol = h.MARSHAL_VAL ? h.MARSHAL_VAL : "";
+
+                rows.forEach(p => {
+                    aoa.push([
+                        formatShiftDate(p.TRIP_DATE),
+                        String(p.TRIP_ID || ""),
+                        p.FLIGHT_NO,
+                        String(p.EMPLOYEE_ID || ""),
+                        p.EMPLOYEE_NAME,
+                        p.ADDRESS,
+                        p.LANDMARK,
+                        p.REPORTING_LOCATION,
+                        pickupTime(p.TRIP_DATE, p.SHIFT_TIME),
+                        p.SHIFT_TIME,
+                        unitedFacCol,
+                        p.VEHICLE_NO,
+                        p.PASSENGER_MOBILE // <-- Added contact number here
+                    ]);
+                });
+
+                // Spacer row then repeat header before next trip
+                aoa.push([]); // blank spacer
+                aoa.push(COLS); // repeat header
+            }
+
+            // Remove last repeated header (trailing)
+            aoa.pop();
+            aoa.pop();
+
+            ws = XLSX.utils.aoa_to_sheet(aoa);
+
+            // ── Landscape A4 print settings ──
+            ws['!pageSetup'] = {
+                orientation: "landscape",
+                paperSize: 9,       // A4
+                fitToPage: true,
+                fitToWidth: 1,
+                fitToHeight: 0,
+                scale: 100
+            };
+            ws['!printOptions'] = { gridLines: true };
+            ws['!margins'] = { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 };
+            // Row height 40 for all rows; headers get 25
+            const rosterRowHeights = [];
+            for (let ri = 0; ri < aoa.length; ri++) rosterRowHeights.push({ hpt: 40 });
+            ws['!rows'] = rosterRowHeights;
+
+            // Fixed col widths tuned for landscape A4 (total ~140 chars across 12 cols)
+            ws['!cols'] = [
+                { wch: 10 }, // DATE
+                { wch: 7  }, // TRIP ID
+                { wch: 7  }, // FLT NO.
+                { wch: 8  }, // SAP ID
+                { wch: 15 }, // EMP NAME
+                { wch: 55 }, // EMPLOYEE ADDRESS
+                { wch: 15 }, // LANDMARK
+                { wch: 10 }, // DROP LOCATION
+                { wch: 7  }, // PICKUP TIME
+                { wch: 7  }, // AIRPORT DROP TIME
+                { wch: 10 }, // UNITED FACILITIES
+                { wch: 11 }, // CAB REG NO
+                { wch: 11 }, // EMP CONTACT NO
+
+            ];
+        }
+
+        // ── Apply full formatting ──
+        log("Applying Excel styles…");
+        // For roster, apply styling but skip re-writing headers (already uppercase)
+        applySheetStyling(ws, type === 'roster' ? -1 : 0); // pass -1 to style ALL rows as headers where row index matches COLS row
+        
+        // For roster: style every header row (rows where col[0] === "DATE")
+        if (type === 'roster' && ws && ws['!ref']) {
+            const range = XLSX.utils.decode_range(ws['!ref']);
+            for (let R = range.s.r; R <= range.e.r; R++) {
+                const cell0 = ws[XLSX.utils.encode_cell({r: R, c: 0})];
+                if (cell0 && String(cell0.v).trim().toUpperCase() === "DATE") {
+                    for (let C = range.s.c; C <= range.e.c; C++) {
+                        const addr = XLSX.utils.encode_cell({r: R, c: C});
+                        if (!ws[addr]) ws[addr] = {v: "", t: "s"};
+                        ws[addr].s = {
+                            fill: { patternType: "solid", fgColor: { rgb: "366092" } },
+                            font: { name: "Cambria", sz: 10, bold: true, color: { rgb: "FFFFFF" } },
+                            alignment: { horizontal: "center", vertical: "center", wrapText: true },
+                            border: { top:{style:"thin",color:{rgb:"B0B0B0"}}, bottom:{style:"thin",color:{rgb:"B0B0B0"}}, left:{style:"thin",color:{rgb:"B0B0B0"}}, right:{style:"thin",color:{rgb:"B0B0B0"}} }
+                        };
+                    }
+                    ws['!rows'] = ws['!rows'] || [];
+                    ws['!rows'][R] = { hpt: 25 };
+                    // Address column (col 5) top-align for data rows handled below
+                }
+            }
+        }
+
+        // Address col top-align for roster data rows
+        if (type === 'roster' && ws && ws['!ref']) {
+            const rng = XLSX.utils.decode_range(ws['!ref']);
+            for (let R = rng.s.r; R <= rng.e.r; R++) {
+                const c0 = ws[XLSX.utils.encode_cell({r:R,c:0})];
+                const isHdr = c0 && String(c0.v).trim().toUpperCase() === "DATE";
+                if (!isHdr) {
+                    const addrCell = ws[XLSX.utils.encode_cell({r:R,c:5})];
+                    if (addrCell) {
+                        addrCell.s = addrCell.s || {};
+                        addrCell.s.alignment = { horizontal:"center", vertical:"top", wrapText:true };
+                        addrCell.s.font = { name:"Cambria", sz:10 };
+                        addrCell.s.border = { top:{style:"thin",color:{rgb:"B0B0B0"}}, bottom:{style:"thin",color:{rgb:"B0B0B0"}}, left:{style:"thin",color:{rgb:"B0B0B0"}}, right:{style:"thin",color:{rgb:"B0B0B0"}} };
+                    }
+                }
+            }
+        }
+        XLSX.utils.book_append_sheet(wb, ws, "Cleaned Data");
+        log("Downloading file…");
+        XLSX.writeFile(wb, `Cleaned_${type.toUpperCase()}_Data.xlsx`);
+        log("Done! ✅", 'success');
+    }
+
+    processBtn.addEventListener('click', processFiles);
+</script>
+</body>
+</html>
